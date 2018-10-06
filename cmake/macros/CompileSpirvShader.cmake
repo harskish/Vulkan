@@ -9,7 +9,7 @@
 
 function(COMPILE_SPIRV_SHADER SHADER_FILE)
     # Define the final name of the generated shader file
-    find_program(GLSLANG_EXECUTABLE glslangValidator
+    find_program(GLSLANG_EXECUTABLE glslc #glslangValidator
         HINTS "$ENV{VULKAN_SDK}/bin")
     find_program(SPIRV_OPT_EXECUTABLE spirv-opt
         HINTS "$ENV{VULKAN_SDK}/bin")
@@ -18,13 +18,13 @@ function(COMPILE_SPIRV_SHADER SHADER_FILE)
     set(COMPILE_OUTPUT "${SHADER_FILE}.debug.spv")
     set(OPTIMIZE_OUTPUT "${SHADER_FILE}.spv")
     add_custom_command(
-        OUTPUT ${COMPILE_OUTPUT} 
-        COMMAND ${GLSLANG_EXECUTABLE} -V ${SHADER_FILE} -o ${COMPILE_OUTPUT} 
+        OUTPUT ${OPTIMIZE_OUTPUT} #${COMPILE_OUTPUT} 
+        COMMAND ${GLSLANG_EXECUTABLE} -V ${SHADER_FILE} -o ${OPTIMIZE_OUTPUT} #${COMPILE_OUTPUT} 
         DEPENDS ${SHADER_FILE})
-    add_custom_command(
-        OUTPUT ${OPTIMIZE_OUTPUT} 
-        COMMAND ${SPIRV_OPT_EXECUTABLE} -O ${COMPILE_OUTPUT} -o ${OPTIMIZE_OUTPUT} 
-        DEPENDS ${COMPILE_OUTPUT})
+    #add_custom_command(
+    #    OUTPUT ${OPTIMIZE_OUTPUT} 
+    #    COMMAND ${SPIRV_OPT_EXECUTABLE} -O ${COMPILE_OUTPUT} -o ${OPTIMIZE_OUTPUT} 
+    #    DEPENDS ${COMPILE_OUTPUT})
     set(COMPILE_SPIRV_SHADER_RETURN ${OPTIMIZE_OUTPUT} PARENT_SCOPE)
 endfunction()
 

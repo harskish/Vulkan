@@ -661,6 +661,28 @@ public:
         return stageToDeviceImage(imageCreateInfo, memoryPropertyFlags, (vk::DeviceSize)tex2D.size(), tex2D.data(), mips, layout);
     }
 
+    Buffer createBufferAligned(const vk::BufferUsageFlags& usageFlags, const vk::MemoryPropertyFlags& memoryPropertyFlags, vk::MemoryRequirements memReqs) const {
+        Buffer result;
+        result.device = device;
+        result.size = memReqs.size;
+        result.descriptor.range = VK_WHOLE_SIZE;
+        result.descriptor.offset = 0;
+
+        vk::BufferCreateInfo bufferCreateInfo;
+        bufferCreateInfo.usage = usageFlags;
+        bufferCreateInfo.size = memReqs.size;
+
+        result.descriptor.buffer = result.buffer = device.createBuffer(bufferCreateInfo);
+
+        vk::MemoryAllocateInfo memAlloc;
+        result.allocSize = memAlloc.allocationSize = memReqs.size;
+        result.alignment = memReqs.alignment;
+        memAlloc.memoryTypeIndex = getMemoryType(memReqs.memoryTypeBits, memoryPropertyFlags);
+        result.memory = device.allocateMemory(memAlloc);
+        device.bindBufferMemory(result.buffer, result.memory, 0);
+        return result;
+    }
+
     Buffer createBuffer(const vk::BufferUsageFlags& usageFlags, const vk::MemoryPropertyFlags& memoryPropertyFlags, vk::DeviceSize size) const {
         Buffer result;
         result.device = device;
