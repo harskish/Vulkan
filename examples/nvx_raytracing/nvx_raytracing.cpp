@@ -9,19 +9,21 @@
 #include <vulkanExampleBase.h>
 #include <numeric>
 
-#define TEX_DIM 2048
 constexpr int RT_STAGE_COUNT = 3; // [rgen, miss, chit]
 
-
-// Vertex layout for this example
-struct Vertex {
-    float pos[3];
-    float uv[2];
+struct VertexModel {
+    glm::vec4 pos;
+    glm::vec4 normal;
+    glm::vec4 color;
 };
 
-vks::model::VertexLayout vertexLayout{ {
+vks::model::VertexLayout vertexLayoutModel{ {
     vks::model::VERTEX_COMPONENT_POSITION,
-    vks::model::VERTEX_COMPONENT_UV,
+    vks::model::VERTEX_COMPONENT_DUMMY_FLOAT,
+    vks::model::VERTEX_COMPONENT_NORMAL,
+    vks::model::VERTEX_COMPONENT_DUMMY_FLOAT,
+    vks::model::VERTEX_COMPONENT_COLOR,
+    vks::model::VERTEX_COMPONENT_DUMMY_FLOAT,
 } };
 
 class VulkanExample : public vkx::ExampleBase {
@@ -63,16 +65,13 @@ public:
 
     vks::Buffer uniformDataRaytracing;
 
+    // Order by size to avoid alignment mismatches between host and device
     struct UboCompute {
-        glm::vec3 lightPos;
-        // Aspect ratio of the viewport
+        glm::mat4 invR;
+        glm::vec4 camPos = glm::vec4(0.5f, 0.0f, 0.0f, 0.0f);
+        glm::vec4 lightPos;
         float aspectRatio;
-        glm::vec4 fogColor = glm::vec4(0.0f);
-        struct Camera {
-            glm::vec3 pos = glm::vec3(0.0f, 1.5f, 4.0f);
-            glm::vec3 lookat = glm::vec3(0.0f, 0.5f, 0.0f);
-            float fov = 10.0f;
-        } camera;
+        float fov = 90.0f;
     } uboRT;
 
     struct {
@@ -94,12 +93,11 @@ public:
 
     VulkanExample() {
         camera.type = Camera::CameraType::firstperson;
-        camera.movementSpeed = 5.0f;
-        camera.position = { 7.5f, -6.75f, 0.0f };
-        camera.setRotation(glm::vec3(5.0f, 90.0f, 0.0f));
-        camera.setPerspective(60.0f, (float)size.width / (float)size.height, 0.1f, 64.0f);
+        camera.movementSpeed = 1.0f;
+        camera.setPosition(glm::vec3(uboRT.camPos));
+        camera.setRotation(glm::vec3(0.0f, 90.0f, 0.0f));
+        camera.setPerspective(uboRT.fov, (float)size.width / (float)size.height, 0.1f, 64.0f);
 
-        //camera.dolly(-2.0f);
         title = "Vulkan Example - NVX raytracing";
         uboRT.aspectRatio = (float)size.width / (float)size.height;
         paused = false;
@@ -192,7 +190,7 @@ public:
         });
     }
 
-    void updateDrawCommandBuffer(const vk::CommandBuffer& cmdBuffer) {
+    void updateDrawCommandBuffer(const vk::CommandBuffer& cmdBuffer) override {
         // vk::Image memory barrier to make sure that raytracing
         // shader writes are finished before sampling
         // from the texture
@@ -215,7 +213,7 @@ public:
         cmdBuffer.drawIndexed(meshes.quad.indexCount, 1, 0, 0, 0);
     }
 
-    void buildRaytracingCommandBuffer() {
+    void updateRaytracingCommandBuffer() {
         vk::CommandBufferBeginInfo cmdBufInfo;
         raytracingCmdBuffer.begin(cmdBufInfo);
         raytracingCmdBuffer.bindPipeline(vk::PipelineBindPoint::eRaytracingNVX, pipelines.raytracing);
@@ -246,10 +244,10 @@ public:
     void loadGeometry() {
         // Setup geometry for raytraing
         vks::model::ModelCreateInfo modelCreateInfo;
-        modelCreateInfo.scale = glm::vec3(0.05f);
+        modelCreateInfo.scale = glm::vec3(0.1f, -0.1f, 0.1f);
         modelCreateInfo.uvscale = glm::vec2(1.0f);
         modelCreateInfo.center = glm::vec3(0.0f, 0.0f, 0.0f);
-        meshes.rtMesh.loadFromFile(context, getAssetPath() + "models/sibenik/sibenik.dae", vertexLayout, modelCreateInfo);
+        meshes.rtMesh.loadFromFile(context, getAssetPath() + "models/sibenik/sibenik.dae", vertexLayoutModel, modelCreateInfo);
         const vk::IndexType meshIndexType = vk::IndexType::eUint32; // loadFromFile uses U32
 
         // Identity transformation for all meshes
@@ -264,7 +262,7 @@ public:
         for (int i = 0; i < numMeshes; i++) {
             auto numVert = meshes.rtMesh.vertexCount;
             auto numInd = meshes.rtMesh.indexCount;
-            auto strideVert = sizeof(Vertex);
+            auto strideVert = sizeof(VertexModel);
             auto tris = vk::GeometryTrianglesNVX(meshes.rtMesh.vertices.buffer, 0, numVert, strideVert, vk::Format::eR32G32B32Sfloat, meshes.rtMesh.indices.buffer, 0, numInd, meshIndexType,
                 transform3x4.buffer, 0);
             auto geomData = vk::GeometryDataNVX(tris);                                          // union of tri and aabb, data read based on geometryTypeNVX
@@ -274,29 +272,20 @@ public:
         }
 
         // Setup quad for drawing resulting image form raytracing pass
+        struct VertexQuad {
+            float pos[3];
+            float uv[3];
+        };
         const float dim = 1.0f;
-        std::vector<Vertex> vertexBuffer = { { { dim, dim, 0.0f }, { 1.0f, 1.0f } },
-                                             { { -dim, dim, 0.0f }, { 0.0f, 1.0f } },
-                                             { { -dim, -dim, 0.0f }, { 0.0f, 0.0f } },
-                                             { { dim, -dim, 0.0f }, { 1.0f, 0.0f } } };
+        std::vector<VertexQuad> vertexBuffer = { { { dim,  dim, 0.0f }, { 1.0f, 1.0f } },
+                                                { { -dim,  dim, 0.0f }, { 0.0f, 1.0f } },
+                                                { { -dim, -dim, 0.0f }, { 0.0f, 0.0f } },
+                                                 { { dim, -dim, 0.0f }, { 1.0f, 0.0f } } };
 
         meshes.quad.vertices = context.stageToDeviceBuffer(vk::BufferUsageFlagBits::eVertexBuffer, vertexBuffer);
         std::vector<uint32_t> indexBuffer = { 0, 1, 2, 2, 3, 0 };
         meshes.quad.indexCount = (uint32_t)indexBuffer.size();
         meshes.quad.indices = context.stageToDeviceBuffer(vk::BufferUsageFlagBits::eIndexBuffer, indexBuffer);
-    }
-
-    void setupDescriptorPool() {
-        std::vector<vk::DescriptorPoolSize> poolSizes = {
-            { vk::DescriptorType::eUniformBuffer, 2 },
-            // Graphics pipeline:
-            { vk::DescriptorType::eCombinedImageSampler, 4 },
-            // Raytracing pipeline:
-            { vk::DescriptorType::eStorageImage, 1 },
-            { vk::DescriptorType::eAccelerationStructureNVX, 1 },
-        };
-
-        descriptorPool = device.createDescriptorPool({ {}, /*maxSets*/3, (uint32_t)poolSizes.size(), poolSizes.data() });
     }
 
     // Rasterization
@@ -326,13 +315,17 @@ public:
     }
 
     // Create a separate command buffer for raytracing commands
-    void createComputeCommandBuffer() { raytracingCmdBuffer = device.allocateCommandBuffers({ cmdPool, vk::CommandBufferLevel::ePrimary, 1 })[0]; }
+    void createRaytracingCommandBuffer() { raytracingCmdBuffer = device.allocateCommandBuffers({ cmdPool, vk::CommandBufferLevel::ePrimary, 1 })[0]; }
 
     void preparePipelines() {
+        vks::model::VertexLayout vertexLayoutQuad{ {
+            vks::model::VERTEX_COMPONENT_POSITION,
+            vks::model::VERTEX_COMPONENT_COLOR,
+        } };
         // Display pipeline
         vks::pipelines::GraphicsPipelineBuilder pipelineCreator{ device, pipelineLayout, renderPass };
         pipelineCreator.rasterizationState.cullMode = vk::CullModeFlagBits::eNone;
-        pipelineCreator.vertexInputState.appendVertexLayout(vertexLayout);
+        pipelineCreator.vertexInputState.appendVertexLayout(vertexLayoutQuad);
         pipelineCreator.loadShader(getAssetPath() + "shaders/raytracing/texture.vert.spv", vk::ShaderStageFlagBits::eVertex);
         pipelineCreator.loadShader(getAssetPath() + "shaders/raytracing/texture.frag.spv", vk::ShaderStageFlagBits::eFragment);
         pipelines.display = pipelineCreator.create(context.pipelineCache);
@@ -447,15 +440,32 @@ public:
         });
     }
 
+    void setupDescriptorPool() {
+        std::vector<vk::DescriptorPoolSize> poolSizes = {
+            { vk::DescriptorType::eUniformBuffer, 2 }, // 1 for vertex shader, 1 for raygen shader
+            // Graphics pipeline:
+            { vk::DescriptorType::eCombinedImageSampler, 4 },
+            // Raytracing pipeline:
+            { vk::DescriptorType::eStorageImage, 1 },
+            { vk::DescriptorType::eAccelerationStructureNVX, 1 },
+            { vk::DescriptorType::eStorageBuffer, 2 }, // hit shader: vertices, indices
+        };
+
+        descriptorPool = device.createDescriptorPool({ {}, /*maxSets*/3, (uint32_t)poolSizes.size(), poolSizes.data() });
+    }
+
     // Prepare the raytracing pipeline
     void prepareRaytracing() {
 
         // Descriptor set layout
         std::vector<vk::DescriptorSetLayoutBinding> setLayoutBindings{
-            // Binding 0 : Sampled image (write)
+            // Ray generation stage
             { 0, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eRaygenNVX },
-            // Binding 1 : RT acceleration structure
             { 1, vk::DescriptorType::eAccelerationStructureNVX, 1, vk::ShaderStageFlagBits::eRaygenNVX },
+            { 2, vk::DescriptorType::eUniformBuffer, 1, vk::ShaderStageFlagBits::eRaygenNVX }, // RT uniform buffer(camera params etc.)
+            // Intersection stages
+            { 3, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitNVX }, // indices
+            { 4, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitNVX }, // vertices
         };
 
         
@@ -486,10 +496,12 @@ public:
             { nullptr, textureRaytracingTarget.view, vk::ImageLayout::eGeneral },
         };
 
-        std::array<vk::WriteDescriptorSet, 2> rtWriteDescSets;
-        rtWriteDescSets[0] = { raytracingDescriptorSet, 0, 0, 1, vk::DescriptorType::eStorageImage, &rtTexDescriptors[0] };
-        rtWriteDescSets[1] = { raytracingDescriptorSet, 1, 0, 1, vk::DescriptorType::eAccelerationStructureNVX };
-        rtWriteDescSets[1].pNext = &accelInfo;
+        std::array<vk::WriteDescriptorSet, 5> rtWriteDescSets;
+        rtWriteDescSets.at(0) = { raytracingDescriptorSet, 0, 0, 1, vk::DescriptorType::eStorageImage, &rtTexDescriptors[0] };
+        rtWriteDescSets.at(1) = { raytracingDescriptorSet, 1, 0, 1, vk::DescriptorType::eAccelerationStructureNVX }; rtWriteDescSets.at(1).pNext = &accelInfo;
+        rtWriteDescSets.at(2) = { raytracingDescriptorSet, 2, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &uniformDataRaytracing.descriptor };
+        rtWriteDescSets.at(3) = { raytracingDescriptorSet, 3, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &meshes.rtMesh.indices.descriptor };
+        rtWriteDescSets.at(4) = { raytracingDescriptorSet, 4, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &meshes.rtMesh.vertices.descriptor };
 
         device.updateDescriptorSets(rtWriteDescSets, nullptr);
     }
@@ -512,6 +524,11 @@ public:
         uboRT.lightPos.y = 5.0f;
         uboRT.lightPos.z = 1.0f;
         uboRT.lightPos.z = 0.0f + cos(glm::radians(timer * 360.0f)) * 2.0f;
+        
+        uboRT.camPos = glm::vec4(camera.position, 1.0f);
+        glm::mat3 invR = glm::inverse(glm::mat3(camera.matrices.view));
+        uboRT.invR = glm::mat4(invR);
+        
         uniformDataRaytracing.copy(uboRT);
     }
 
@@ -541,9 +558,9 @@ public:
         loadGeometry();
         getRaytracingQueue();
         buildAccelerationStructure();
-        createComputeCommandBuffer();
+        createRaytracingCommandBuffer();
         prepareUniformBuffers();
-        prepareTextureTarget(textureRaytracingTarget, TEX_DIM, TEX_DIM, vk::Format::eR8G8B8A8Unorm);
+        prepareTextureTarget(textureRaytracingTarget, this->width, this->height, vk::Format::eR8G8B8A8Unorm);
         setupDescriptorSetLayout();
         preparePipelines();
         setupDescriptorPool();
@@ -551,11 +568,21 @@ public:
         prepareRaytracing();
         setupShaderBindingTable();
         buildCommandBuffers();
-        buildRaytracingCommandBuffer();
+        updateRaytracingCommandBuffer();
         prepared = true;
     }
 
-    virtual void render() {
+    virtual void windowResized() override {
+        prepareTextureTarget(textureRaytracingTarget, this->width, this->height, vk::Format::eR8G8B8A8Unorm);
+        updateRaytracingCommandBuffer();
+    }
+
+    void mouseScrolled(float delta) override {
+        float newSpeed = (delta > 0) ? camera.movementSpeed * 1.2f : camera.movementSpeed / 1.2f;
+        camera.movementSpeed = std::max(1e-3f, std::min(1e6f, newSpeed));
+    }
+
+    virtual void render() override {
         if (!prepared)
             return;
         draw();

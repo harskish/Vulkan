@@ -4,6 +4,15 @@
 layout(binding = 0, rgba8) uniform writeonly image2D image;
 layout(binding = 1) uniform accelerationStructureNVX bvh;
 
+layout (std140, binding = 2) readonly uniform UBO
+{
+	mat4 invR;
+	vec4 camPos;
+	vec4 lightPos;
+	float aspectRatio;
+	float fov;
+} ubo;
+
 layout(location = 0) rayPayloadNVX vec3 color;
 
 struct Ray {
@@ -11,21 +20,21 @@ struct Ray {
     vec3 direction;
 };
 
-// https://github.com/kennyalive/vulkan-base
-Ray generate_ray(vec2 film_position) {
-    const float tan_fovy_over_2 = 0.414; // tan(45/2)
+float toRad(float deg) {
+	return deg * 3.141592 / 360.0;
+}
 
-    vec2 uv = film_position / vec2(gl_LaunchSizeNVX.xy);
-    float aspect_ratio = float(gl_LaunchSizeNVX.x) / float(gl_LaunchSizeNVX.y);
-    float horz_half_dist = aspect_ratio * tan_fovy_over_2;
-    float vert_half_dist = tan_fovy_over_2;
-    vec2 uv2 = 2.0 * uv - 1.0;
-    float dir_x = uv2.x * horz_half_dist;
-    float dir_y = -uv2.y * vert_half_dist;
+Ray generate_ray(vec2 filmPos) {
+    const float scale = tan(toRad(ubo.fov / 2.0));
+    vec2 posNDC = filmPos / vec2(gl_LaunchSizeNVX.xy);
+
+    vec2 uv = 2.0 * posNDC - 1.0;
+    float dirX = -uv.x * scale * ubo.aspectRatio;
+    float dirY = uv.y * scale;
 
     Ray ray;
-    ray.origin = vec3(0, 0, 3);
-    ray.direction = normalize(vec3(dir_x, dir_y, -1.f));
+    ray.origin = ubo.camPos.xyz;
+    ray.direction = mat3(ubo.invR) * normalize(vec3(dirX, dirY, 1.0));
     return ray;
 }
 

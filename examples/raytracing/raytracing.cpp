@@ -65,7 +65,7 @@ public:
         camera.dolly(-2.0f);
         title = "Vulkan Example - Compute shader ray tracing";
         uboCompute.aspectRatio = (float)size.width / (float)size.height;
-        paused = true;
+        paused = false;
         timerSpeed *= 0.5f;
     }
 
@@ -142,7 +142,7 @@ public:
         });
     }
 
-    void updateDrawCommandBuffer(const vk::CommandBuffer& cmdBuffer) {
+    void updateDrawCommandBuffer(const vk::CommandBuffer& cmdBuffer) override {
         // vk::Image memory barrier to make sure that compute
         // shader writes are finished before sampling
         // from the texture
