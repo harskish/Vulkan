@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_access.hpp>
 
 class Camera {
 private:
@@ -59,9 +60,11 @@ public:
         bool right = false;
         bool up = false;
         bool down = false;
+        bool forward = false;
+        bool back = false;
     } keys;
 
-    bool moving() { return keys.left || keys.right || keys.up || keys.down; }
+    bool moving() { return keys.left || keys.right || keys.up || keys.down || keys.forward || keys.back; }
 
     float getNearClip() { return znear; }
 
@@ -104,21 +107,22 @@ public:
 
     void dolly(float z) { translate({ 0, 0, z }); }
 
-    glm::vec3 getFront() const {
-        glm::vec3 camFront;
-        camFront.x = -cos(glm::radians(rotation.x)) * sin(glm::radians(rotation.y));
-        camFront.y = sin(glm::radians(rotation.x));
-        camFront.z = cos(glm::radians(rotation.x)) * cos(glm::radians(rotation.y));
-        camFront = glm::normalize(camFront);
-        return camFront;
+    glm::vec3 getLeft() {
+        return glm::vec3(glm::row(matrices.view, 0));
+    }
+
+    glm::vec3 getUp() {
+        return glm::vec3(glm::row(matrices.view, 1));
+    }
+
+    glm::vec3 getFront() {
+        return glm::vec3(glm::row(matrices.view, 2));
     }
 
     void translate(const glm::vec3& delta) {
-        glm::vec3 camFront = getFront();
-        glm::vec3 camUp = glm::vec3(0.0f, 1.0f, 0.0f);
-        glm::vec3 camLeft = glm::cross(camFront, camUp);
-        camUp = glm::cross(camFront, camLeft);
-        glm::vec3 result = camLeft * delta.x + camUp * -delta.y + camFront * delta.z;
+        glm::mat3 invR = glm::transpose(glm::mat3(matrices.view));
+        glm::vec3 result = invR * glm::vec3(-delta.x, delta.y, delta.z);
+
         position += result;
         updateViewMatrix();
     }
@@ -128,12 +132,18 @@ public:
             if (moving()) {
                 glm::vec3 direction;
                 if (keys.up ^ keys.down) {
-                    direction.z = keys.up ? 1.0f : -1.0f;
+                    direction.y = keys.up ? 1.0f : -1.0f;
                 }
                 if (keys.left ^ keys.right) {
                     direction.x = keys.left ? -1.0f : 1.0f;
                 }
-                translate(direction * deltaTime * movementSpeed);
+                if (keys.forward ^ keys.back) {
+                    direction.z = keys.forward ? 1.0f : -1.0f;
+                }
+                // Normalize to keep speed constant
+                if (glm::length(direction) > 0.0f) {
+                    translate(glm::normalize(direction) * deltaTime * movementSpeed);
+                }
             }
         }
     };
@@ -149,12 +159,7 @@ public:
 
             const float deadZone = 0.0015f;
             const float range = 1.0f - deadZone;
-
-            glm::vec3 camFront;
-            camFront.x = -cos(glm::radians(rotation.x)) * sin(glm::radians(rotation.y));
-            camFront.y = sin(glm::radians(rotation.x));
-            camFront.z = cos(glm::radians(rotation.x)) * cos(glm::radians(rotation.y));
-            camFront = glm::normalize(camFront);
+            glm::vec3 camFront = getFront();
 
             float moveSpeed = deltaTime * movementSpeed * 2.0f;
             float rotSpeed = deltaTime * rotationSpeed * 50.0f;

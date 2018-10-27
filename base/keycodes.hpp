@@ -60,6 +60,7 @@
 #define KEY_N GLFW_KEY_N
 #define KEY_O GLFW_KEY_O
 #define KEY_P GLFW_KEY_P
+#define KEY_R GLFW_KEY_R
 #define KEY_S GLFW_KEY_S
 #define KEY_T GLFW_KEY_T
 #define KEY_W GLFW_KEY_W
