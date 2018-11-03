@@ -476,11 +476,11 @@ public:
         // Pipeline
         std::array<vk::PipelineShaderStageCreateInfo, RT_STAGE_COUNT> rtStages;
         rtStages.at(0) = vks::shaders::loadShader(device,
-            getAssetPath() + "shaders/nvx_raytracing/nv_raygen.rgen.spv", vk::ShaderStageFlagBits::eRaygenNVX, "main");
+            getAssetPath() + "shaders/nvx_raytracing/raygen.rgen.spv", vk::ShaderStageFlagBits::eRaygenNVX, "main");
         rtStages.at(1) = vks::shaders::loadShader(device,
-            getAssetPath() + "shaders/nvx_raytracing/nv_miss.rmiss.spv", vk::ShaderStageFlagBits::eMissNVX, "main");
+            getAssetPath() + "shaders/nvx_raytracing/miss_primary.rmiss.spv", vk::ShaderStageFlagBits::eMissNVX, "main");
         rtStages.at(2) = vks::shaders::loadShader(device,
-            getAssetPath() + "shaders/nvx_raytracing/nv_closest.rchit.spv", vk::ShaderStageFlagBits::eClosestHitNVX, "main");
+            getAssetPath() + "shaders/nvx_raytracing/diffuse.rchit.spv", vk::ShaderStageFlagBits::eClosestHitNVX, "main");
 
         std::array<uint32_t, RT_STAGE_COUNT> groupNumbers;
         std::iota(groupNumbers.begin(), groupNumbers.end(), 0); // fill with { 0 ... RT_STAGE_COUNT-1}
