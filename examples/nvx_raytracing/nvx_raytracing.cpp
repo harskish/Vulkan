@@ -302,7 +302,10 @@ public:
     // Rasterization
     void setupDescriptorSet() {
         descriptorSetPostCompute = device.allocateDescriptorSets({ descriptorPool, 1, &descriptorSetLayout })[0];
+        updateDescriptorSet();
+    }
 
+    void updateDescriptorSet() {
         // vk::Image descriptor for the color map texture
         vk::DescriptorImageInfo texDescriptor{ textureRaytracingTarget.sampler, textureRaytracingTarget.view, vk::ImageLayout::eGeneral };
 
@@ -482,15 +485,18 @@ public:
         rtStages.at(2) = vks::shaders::loadShader(device,
             getAssetPath() + "shaders/nvx_raytracing/diffuse.rchit.spv", vk::ShaderStageFlagBits::eClosestHitNVX, "main");
 
-        std::array<uint32_t, RT_STAGE_COUNT> groupNumbers;
-        std::iota(groupNumbers.begin(), groupNumbers.end(), 0); // fill with { 0 ... RT_STAGE_COUNT-1}
-        auto createInfo = vk::RaytracingPipelineCreateInfoNVX({}, rtStages.size(), rtStages.data(), groupNumbers.data(), 1/*rtDevMaxRecursionDepth*/, raytracingPipelineLayout);
+        const uint32_t groupNumbers[] = { 0, 1, 2 }; // [raygen, prim_miss, diffuse_hit]
+        static_assert(std::size(groupNumbers) == RT_STAGE_COUNT, "Missing group numbers");
+        auto createInfo = vk::RaytracingPipelineCreateInfoNVX({}, rtStages.size(), rtStages.data(), groupNumbers, 3/*rtDevMaxRecursionDepth*/, raytracingPipelineLayout);
         pipelines.raytracing = device.createRaytracingPipelineNVX(context.pipelineCache, createInfo, nullptr, loaderNVX);
 
         // Descriptor set
         auto sets = device.allocateDescriptorSets({ descriptorPool, 1, &raytracingDescriptorSetLayout });
         raytracingDescriptorSet = sets[0];
+        updateRTDescriptorSets();
+    }
 
+    void updateRTDescriptorSets() {
         auto accelInfo = vk::DescriptorAccelerationStructureInfoNVX(1, &topHandle);
         std::vector<vk::DescriptorImageInfo> rtTexDescriptors{
             { nullptr, textureRaytracingTarget.view, vk::ImageLayout::eGeneral },
@@ -528,6 +534,7 @@ public:
         uboRT.camPos = glm::vec4(camera.position, 1.0f);
         glm::mat3 invR = glm::inverse(glm::mat3(camera.matrices.view));
         uboRT.invR = glm::mat4(invR);
+        uboRT.aspectRatio = (float)size.width / (float)size.height;
         
         uniformDataRaytracing.copy(uboRT);
     }
@@ -573,8 +580,12 @@ public:
     }
 
     virtual void windowResized() override {
+        textureRaytracingTarget.destroy();
         prepareTextureTarget(textureRaytracingTarget, this->width, this->height, vk::Format::eR8G8B8A8Unorm);
         updateRaytracingCommandBuffer();
+        updateDescriptorSet();
+        updateRTDescriptorSets();
+        uboRT.aspectRatio = (float)size.width / (float)size.height;
     }
 
     void mouseScrolled(float delta) override {
