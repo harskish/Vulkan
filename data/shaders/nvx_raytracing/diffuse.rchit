@@ -8,8 +8,6 @@ struct Vertex {
 	vec3 color;
 };
 
-//layout(binding = 5) uniform accelerationStructureNVX bvh;
-
 layout(location = 0) rayPayloadInNVX Payload {
 	vec3 color;
 } payload;
@@ -18,7 +16,7 @@ layout(location = 1) rayPayloadNVX ShadowPayload {
 	bool blocked;
 } shadowPayload;
 
-layout(location = 1) hitAttributeNVX vec3 attribs;
+layout(location = 2) hitAttributeNVX vec3 attribs;
 
 layout(std430, binding = 3) readonly buffer Indices {
     uint indices[];
@@ -28,7 +26,17 @@ layout(std430, binding = 4) readonly buffer Vertices {
     Vertex vertices[];
 };
 
-const vec3 lightPos = vec3(0.0, 0.0, 0.0);
+layout(binding = 5) uniform accelerationStructureNVX bvh;
+
+layout (std140, binding = 6) readonly uniform UBO
+{
+	mat4 invR;
+	vec4 camPos;
+	vec4 lightPos;
+	float aspectRatio;
+	float fov;
+} ubo;
+
 const vec3 lightColor = vec3(1.0, 1.0, 1.0);
 const float lightIntensity = 1.0;
 
@@ -53,14 +61,15 @@ void main() {
 	dirIn.y *= -1.0;
 
 	vec3 posWorld = gl_WorldRayOriginNVX + gl_WorldRayDirectionNVX * gl_HitTNVX;
-	vec3 L = lightPos - posWorld;
+	vec3 L = ubo.lightPos.xyz - posWorld;
 	float lightDist = length(L);
 
 	shadowPayload.blocked = false;
-	//traceNVX(bvh, gl_RayFlagsOpaqueNVX, 0xff, 0, 0, 0, posWorld, 1e-3f, normalize(L), lightDist, 1);
+	const uint rayFlags = gl_RayFlagsOpaqueNVX | gl_RayFlagsTerminateOnFirstHitNVX;
+	traceNVX(bvh, rayFlags, 0xff, 1, 0, 1, posWorld, 1e-3f, normalize(L), lightDist, 1);
 
 	if (!shadowPayload.blocked)
 		payload.color = abs(dot(L, N)) * C * lightColor * lightIntensity / (lightDist * lightDist);
 	else
-		payload.color = abs(dot(L, N)) * C * 0.001;
+		payload.color = C * 0.05;
 }

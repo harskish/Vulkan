@@ -13,7 +13,9 @@ layout (std140, binding = 2) readonly uniform UBO
 	float fov;
 } ubo;
 
-layout(location = 0) rayPayloadNVX vec3 color;
+layout(location = 0) rayPayloadNVX Payload {
+	vec3 color;
+} payload;
 
 struct Ray {
     vec3 origin;
@@ -56,5 +58,5 @@ void main() {
 		1e+5f,            // tMax
 		0);               // payload idx (for using different payloads)
 	
-	imageStore(image, ivec2(gl_LaunchIDNVX.xy), vec4(color, 1.0));
+	imageStore(image, ivec2(gl_LaunchIDNVX.xy), vec4(payload.color, 1.0));
 }

@@ -9,7 +9,8 @@
 #include <vulkanExampleBase.h>
 #include <numeric>
 
-constexpr int RT_STAGE_COUNT = 3; // [rgen, miss, chit]
+constexpr int RT_STAGE_COUNT = 6;
+constexpr int RT_GROUP_COUNT = 5;
 
 struct VertexModel {
     glm::vec4 pos;
@@ -219,12 +220,13 @@ public:
         raytracingCmdBuffer.bindPipeline(vk::PipelineBindPoint::eRaytracingNVX, pipelines.raytracing);
         raytracingCmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eRaytracingNVX, raytracingPipelineLayout, 0, raytracingDescriptorSet, nullptr);
         
-        auto stride = rtDevShaderHeaderSize;
+        auto missStride = rtDevShaderHeaderSize;
+        auto hitStride = rtDevShaderHeaderSize;
         raytracingCmdBuffer.traceRaysNVX(
             shaderBindingTable.buffer,
             0, // raygen
-            shaderBindingTable.buffer, 1 * rtDevShaderHeaderSize, stride, // miss
-            shaderBindingTable.buffer, 2 * rtDevShaderHeaderSize, stride, // chit
+            shaderBindingTable.buffer, 1 * rtDevShaderHeaderSize, missStride, // miss
+            shaderBindingTable.buffer, 3 * rtDevShaderHeaderSize, hitStride, // chit
             textureRaytracingTarget.extent.width,
             textureRaytracingTarget.extent.height,
             loaderNVX);
@@ -302,10 +304,10 @@ public:
     // Rasterization
     void setupDescriptorSet() {
         descriptorSetPostCompute = device.allocateDescriptorSets({ descriptorPool, 1, &descriptorSetLayout })[0];
-        updateDescriptorSet();
+        updateDescriptorSets();
     }
 
-    void updateDescriptorSet() {
+    void updateDescriptorSets() {
         // vk::Image descriptor for the color map texture
         vk::DescriptorImageInfo texDescriptor{ textureRaytracingTarget.sampler, textureRaytracingTarget.view, vk::ImageLayout::eGeneral };
 
@@ -450,7 +452,7 @@ public:
             { vk::DescriptorType::eCombinedImageSampler, 4 },
             // Raytracing pipeline:
             { vk::DescriptorType::eStorageImage, 1 },
-            { vk::DescriptorType::eAccelerationStructureNVX, 1 },
+            { vk::DescriptorType::eAccelerationStructureNVX, 2 },
             { vk::DescriptorType::eStorageBuffer, 2 }, // hit shader: vertices, indices
         };
 
@@ -469,6 +471,8 @@ public:
             // Intersection stages
             { 3, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitNVX }, // indices
             { 4, vk::DescriptorType::eStorageBuffer, 1, vk::ShaderStageFlagBits::eClosestHitNVX }, // vertices
+            { 5, vk::DescriptorType::eAccelerationStructureNVX, 1, vk::ShaderStageFlagBits::eClosestHitNVX },
+            { 6, vk::DescriptorType::eUniformBuffer, 1, vk::ShaderStageFlagBits::eClosestHitNVX },
         };
 
         
@@ -477,17 +481,38 @@ public:
         raytracingPipelineLayout = device.createPipelineLayout({ {}, 1, &raytracingDescriptorSetLayout });
         
         // Pipeline
-        std::array<vk::PipelineShaderStageCreateInfo, RT_STAGE_COUNT> rtStages;
-        rtStages.at(0) = vks::shaders::loadShader(device,
-            getAssetPath() + "shaders/nvx_raytracing/raygen.rgen.spv", vk::ShaderStageFlagBits::eRaygenNVX, "main");
-        rtStages.at(1) = vks::shaders::loadShader(device,
-            getAssetPath() + "shaders/nvx_raytracing/miss_primary.rmiss.spv", vk::ShaderStageFlagBits::eMissNVX, "main");
-        rtStages.at(2) = vks::shaders::loadShader(device,
-            getAssetPath() + "shaders/nvx_raytracing/diffuse.rchit.spv", vk::ShaderStageFlagBits::eClosestHitNVX, "main");
+        std::vector<vk::PipelineShaderStageCreateInfo> rtStages;
+        rtStages.push_back(vks::shaders::loadShader(device,
+            getAssetPath() + "shaders/nvx_raytracing/raygen.rgen.spv", vk::ShaderStageFlagBits::eRaygenNVX, "main"));
+        rtStages.push_back(vks::shaders::loadShader(device,
+            getAssetPath() + "shaders/nvx_raytracing/miss_primary.rmiss.spv", vk::ShaderStageFlagBits::eMissNVX, "main"));
+        rtStages.push_back(vks::shaders::loadShader(device,
+            getAssetPath() + "shaders/nvx_raytracing/miss_shadow.rmiss.spv", vk::ShaderStageFlagBits::eMissNVX, "main"));
+        rtStages.push_back(vks::shaders::loadShader(device,
+            getAssetPath() + "shaders/nvx_raytracing/diffuse.rchit.spv", vk::ShaderStageFlagBits::eClosestHitNVX, "main"));
+        rtStages.push_back(vks::shaders::loadShader(device,
+            getAssetPath() + "shaders/nvx_raytracing/shadow_blocker.rchit.spv", vk::ShaderStageFlagBits::eClosestHitNVX, "main"));
+        rtStages.push_back(vks::shaders::loadShader(device,
+            getAssetPath() + "shaders/nvx_raytracing/shadow_blocker.rahit.spv", vk::ShaderStageFlagBits::eAnyHitNVX, "main"));
+        
+        assert(rtStages.size() == RT_STAGE_COUNT);
 
-        const uint32_t groupNumbers[] = { 0, 1, 2 }; // [raygen, prim_miss, diffuse_hit]
+        /*
+            Shader binding table:
+            What   | Raygen | Miss primary ray | Miss shadow ray | Diffuse chit | Shadowray blocker chit | Shadowray blocker ahit |
+            Group  | 0      | 1                | 2               | 3            | 4                      | 4                      |
+
+            Hit shader index is calculated by:
+            globalHitIndex = instanceShaderBindingTableRecordOffset (per instance) + hitProgramShaderBindingTableBaseIndex + geometryIndex × sbtRecordStride + sbtRecordOffset
+
+            Miss shader index is given by:
+            globalMissIndex = missIndex × sbtRecordStride + sbtRecordOffset
+        */
+
+        const uint32_t groupNumbers[] = { 0, 1, 2, 3, 4, 4 };
         static_assert(std::size(groupNumbers) == RT_STAGE_COUNT, "Missing group numbers");
-        auto createInfo = vk::RaytracingPipelineCreateInfoNVX({}, rtStages.size(), rtStages.data(), groupNumbers, 3/*rtDevMaxRecursionDepth*/, raytracingPipelineLayout);
+        const uint32_t maxDepth = 2; // primary ray + shadow ray
+        auto createInfo = vk::RaytracingPipelineCreateInfoNVX({}, rtStages.size(), rtStages.data(), groupNumbers, maxDepth, raytracingPipelineLayout);
         pipelines.raytracing = device.createRaytracingPipelineNVX(context.pipelineCache, createInfo, nullptr, loaderNVX);
 
         // Descriptor set
@@ -502,19 +527,22 @@ public:
             { nullptr, textureRaytracingTarget.view, vk::ImageLayout::eGeneral },
         };
 
-        std::array<vk::WriteDescriptorSet, 5> rtWriteDescSets;
+        std::array<vk::WriteDescriptorSet, 7> rtWriteDescSets;
         rtWriteDescSets.at(0) = { raytracingDescriptorSet, 0, 0, 1, vk::DescriptorType::eStorageImage, &rtTexDescriptors[0] };
         rtWriteDescSets.at(1) = { raytracingDescriptorSet, 1, 0, 1, vk::DescriptorType::eAccelerationStructureNVX }; rtWriteDescSets.at(1).pNext = &accelInfo;
         rtWriteDescSets.at(2) = { raytracingDescriptorSet, 2, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &uniformDataRaytracing.descriptor };
         rtWriteDescSets.at(3) = { raytracingDescriptorSet, 3, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &meshes.rtMesh.indices.descriptor };
         rtWriteDescSets.at(4) = { raytracingDescriptorSet, 4, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &meshes.rtMesh.vertices.descriptor };
+        rtWriteDescSets.at(5) = { raytracingDescriptorSet, 5, 0, 1, vk::DescriptorType::eAccelerationStructureNVX }; rtWriteDescSets.at(5).pNext = &accelInfo;
+        rtWriteDescSets.at(6) = { raytracingDescriptorSet, 6, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &uniformDataRaytracing.descriptor };
 
         device.updateDescriptorSets(rtWriteDescSets, nullptr);
     }
 
     void setupShaderBindingTable() {
-        const uint32_t bindingTableSize = RT_STAGE_COUNT * rtDevShaderHeaderSize;
-        auto handles = device.getRaytracingShaderHandlesNVX(pipelines.raytracing, 0, RT_STAGE_COUNT, bindingTableSize, loaderNVX);
+        const uint32_t bindingTableSize = RT_GROUP_COUNT * rtDevShaderHeaderSize;
+        const uint32_t firstGroup = 0;
+        auto handles = device.getRaytracingShaderHandlesNVX(pipelines.raytracing, 0, RT_GROUP_COUNT, bindingTableSize, loaderNVX);
         shaderBindingTable = context.stageToDeviceBuffer(vk::BufferUsageFlagBits::eRaytracingNVX, handles);
     }
 
@@ -526,10 +554,9 @@ public:
     }
 
     void updateUniformBuffers() {
-        uboRT.lightPos.x = 0.0f + sin(glm::radians(timer * 360.0f)) * 2.0f;
-        uboRT.lightPos.y = 5.0f;
-        uboRT.lightPos.z = 1.0f;
-        uboRT.lightPos.z = 0.0f + cos(glm::radians(timer * 360.0f)) * 2.0f;
+        uboRT.lightPos.x = 0.2f + sin(glm::radians(timer * 360.0f)) * 1.0f;
+        uboRT.lightPos.y = -0.8f;
+        uboRT.lightPos.z = 0.0f;
         
         uboRT.camPos = glm::vec4(camera.position, 1.0f);
         glm::mat3 invR = glm::inverse(glm::mat3(camera.matrices.view));
@@ -583,7 +610,7 @@ public:
         textureRaytracingTarget.destroy();
         prepareTextureTarget(textureRaytracingTarget, this->width, this->height, vk::Format::eR8G8B8A8Unorm);
         updateRaytracingCommandBuffer();
-        updateDescriptorSet();
+        updateDescriptorSets();
         updateRTDescriptorSets();
         uboRT.aspectRatio = (float)size.width / (float)size.height;
     }
