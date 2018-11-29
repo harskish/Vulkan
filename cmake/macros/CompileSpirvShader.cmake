@@ -9,7 +9,7 @@
 
 function(COMPILE_SPIRV_SHADER SHADER_FILE)
     # Define the final name of the generated shader file
-    find_program(GLSLANG_EXECUTABLE glslc #glslangValidator
+    find_program(GLSLANG_EXECUTABLE glslangValidator
         HINTS "$ENV{VULKAN_SDK}/bin")
     find_program(SPIRV_OPT_EXECUTABLE spirv-opt
         HINTS "$ENV{VULKAN_SDK}/bin")

@@ -1,8 +1,8 @@
 #version 460
-#extension GL_NVX_raytracing : require
+#extension GL_NV_ray_tracing : require
 
 layout(binding = 0, rgba8) uniform writeonly image2D image;
-layout(binding = 1) uniform accelerationStructureNVX bvh;
+layout(binding = 1) uniform accelerationStructureNV bvh;
 
 layout (std140, binding = 2) readonly uniform UBO
 {
@@ -13,7 +13,7 @@ layout (std140, binding = 2) readonly uniform UBO
 	float fov;
 } ubo;
 
-layout(location = 0) rayPayloadNVX Payload {
+layout(location = 0) rayPayloadNV Payload {
 	vec3 color;
 } payload;
 
@@ -28,7 +28,7 @@ float toRad(float deg) {
 
 Ray generate_ray(vec2 filmPos) {
     const float scale = tan(toRad(ubo.fov / 2.0));
-    vec2 posNDC = filmPos / vec2(gl_LaunchSizeNVX.xy);
+    vec2 posNDC = filmPos / vec2(gl_LaunchSizeNV.xy);
 
     vec2 uv = 2.0 * posNDC - 1.0;
     float dirX = -uv.x * scale * ubo.aspectRatio;
@@ -41,11 +41,11 @@ Ray generate_ray(vec2 filmPos) {
 }
 
 void main() {
-    Ray ray = generate_ray(vec2(gl_LaunchIDNVX.xy) + vec2(0.5));
-	const uint rayFlags = gl_RayFlagsOpaqueNVX;
+    Ray ray = generate_ray(vec2(gl_LaunchIDNV.xy) + vec2(0.5));
+	const uint rayFlags = gl_RayFlagsOpaqueNV;
 	
 	// https://github.com/KhronosGroup/GLSL/blob/master/extensions/nvx/GLSL_NVX_raytracing.txt
-	traceNVX(
+	traceNV(
 		bvh,              // top level accel
 		rayFlags,         // rayFlags
 		0xff,             // cullMask
@@ -58,5 +58,5 @@ void main() {
 		1e+5f,            // tMax
 		0);               // payload idx (for using different payloads)
 	
-	imageStore(image, ivec2(gl_LaunchIDNVX.xy), vec4(payload.color, 1.0));
+	imageStore(image, ivec2(gl_LaunchIDNV.xy), vec4(payload.color, 1.0));
 }

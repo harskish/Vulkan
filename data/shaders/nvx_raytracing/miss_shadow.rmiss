@@ -1,12 +1,12 @@
 #version 460
-#extension GL_NVX_raytracing : require
+#extension GL_NV_ray_tracing : require
 
-layout(location = 1) rayPayloadInNVX ShadowPayload {
-	bool blocked;
+layout(location = 1) rayPayloadInNV ShadowPayload {
+	uint blocked;
 } shadowPayload;
 
 /* Shadow ray that misses all geometry */
 
 void main() {
-    shadowPayload.blocked = false;
+    shadowPayload.blocked = 0;
 }

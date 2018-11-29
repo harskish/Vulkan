@@ -1,10 +1,8 @@
 #version 460
-#extension GL_NVX_raytracing : require
+#extension GL_NV_ray_tracing : require
 
-layout(location = 0) rayPayloadInNVX Payload {
+layout(location = 0) rayPayloadInNV Payload {
 	vec3 color;
-	bool isShadowRay;
-	bool shadowRayBlocked;
 } payload;
 
 /* Primary ray miss shader */

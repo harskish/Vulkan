@@ -1,5 +1,5 @@
 #version 460
-#extension GL_NVX_raytracing : require
+#extension GL_NV_ray_tracing : require
 
 // Aligned as vec4
 struct Vertex {
@@ -8,15 +8,15 @@ struct Vertex {
 	vec3 color;
 };
 
-layout(location = 0) rayPayloadInNVX Payload {
+layout(location = 0) rayPayloadInNV Payload {
 	vec3 color;
 } payload;
 
-layout(location = 1) rayPayloadNVX ShadowPayload {
-	bool blocked;
+layout(location = 1) rayPayloadNV ShadowPayload {
+	uint blocked;
 } shadowPayload;
 
-layout(location = 2) hitAttributeNVX vec3 attribs;
+hitAttributeNV vec3 attribs;
 
 layout(std430, binding = 3) readonly buffer Indices {
     uint indices[];
@@ -26,7 +26,7 @@ layout(std430, binding = 4) readonly buffer Vertices {
     Vertex vertices[];
 };
 
-layout(binding = 5) uniform accelerationStructureNVX bvh;
+layout(binding = 5) uniform accelerationStructureNV bvh;
 
 layout (std140, binding = 6) readonly uniform UBO
 {
@@ -57,18 +57,18 @@ void main() {
 	vec3 N2 = vertices[i2].normal;
 	vec3 N = bar.x * N0 + bar.y * N1 + bar.z * N2;
 
-	vec3 dirIn = gl_WorldRayDirectionNVX;
+	vec3 dirIn = gl_WorldRayDirectionNV;
 	dirIn.y *= -1.0;
 
-	vec3 posWorld = gl_WorldRayOriginNVX + gl_WorldRayDirectionNVX * gl_HitTNVX;
+	vec3 posWorld = gl_WorldRayOriginNV + gl_WorldRayDirectionNV * gl_HitTNV;
 	vec3 L = ubo.lightPos.xyz - posWorld;
 	float lightDist = length(L);
 
-	shadowPayload.blocked = false;
-	const uint rayFlags = gl_RayFlagsOpaqueNVX | gl_RayFlagsTerminateOnFirstHitNVX;
-	traceNVX(bvh, rayFlags, 0xff, 1, 0, 1, posWorld, 1e-3f, normalize(L), lightDist, 1);
+	shadowPayload.blocked = 0;
+	const uint rayFlags = gl_RayFlagsOpaqueNV | gl_RayFlagsTerminateOnFirstHitNV;
+	traceNV(bvh, rayFlags, 0xff, 1, 0, 1, posWorld, 1e-3f, normalize(L), lightDist, 1);
 
-	if (!shadowPayload.blocked)
+	if (shadowPayload.blocked == 0)
 		payload.color = abs(dot(L, N)) * C * lightColor * lightIntensity / (lightDist * lightDist);
 	else
 		payload.color = C * 0.05;
